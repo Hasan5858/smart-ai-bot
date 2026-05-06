@@ -74,5 +74,5 @@ export async function getAdminPassword(): Promise<string> {
     } catch { /* falls through */ }
   }
 
-  return import.meta.env.ADMIN_PASSWORD ?? 'default-admin-password';
+  return import.meta.env.ADMIN_PASSWORD ?? 'admin123';
 }

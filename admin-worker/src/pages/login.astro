@@ -52,10 +52,31 @@ import '../styles/global.css';
           ⚠️ Invalid password. Please try again.
         </p>
       </form>
+
+      <!-- Demo Hint -->
+      <div class="demo-hint">
+        <p>Demo Password: <code>admin123</code></p>
+      </div>
     </div>
   </div>
 
   <style>
+    /* ... existing styles ... */
+    .demo-hint {
+      margin-top: 24px;
+      padding-top: 20px;
+      border-top: 1px solid rgba(255,255,255,0.1);
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+    .demo-hint code {
+      color: #3b82f6;
+      background: rgba(59, 130, 246, 0.1);
+      padding: 2px 6px;
+      border-radius: 4px;
+      margin-left: 4px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
     body.login-body {
       display: flex;
       align-items: center;
