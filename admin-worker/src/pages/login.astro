@@ -1,0 +1,201 @@
+---
+import '../styles/global.css';
+---
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Login — Smart AI Bot Admin</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>" />
+</head>
+<body class="login-body">
+
+  <div class="login-bg">
+    <div class="bg-orb orb-1"></div>
+    <div class="bg-orb orb-2"></div>
+  </div>
+
+  <div class="login-container">
+    <div class="login-card">
+      <!-- Logo -->
+      <div class="login-logo">
+        <span class="logo-icon">🤖</span>
+      </div>
+      <h1 class="login-title">Smart AI Bot</h1>
+      <p class="login-sub">Admin Panel · Secure Access</p>
+
+      <!-- Form -->
+      <form id="login-form" class="login-form" novalidate>
+        <div class="field-group">
+          <label for="password">Admin Password</label>
+          <div class="pass-wrap">
+            <input
+              id="password"
+              type="password"
+              placeholder="Enter your password"
+              autocomplete="current-password"
+              required
+            />
+            <button type="button" class="pass-toggle" aria-label="Toggle visibility">👁️</button>
+          </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-lg w-full" id="login-btn">
+          <span id="btn-text">Authenticate →</span>
+          <span id="btn-spinner" class="spinner" style="display:none"></span>
+        </button>
+
+        <p id="error-msg" class="error-text" style="display:none">
+          ⚠️ Invalid password. Please try again.
+        </p>
+      </form>
+    </div>
+  </div>
+
+  <style>
+    body.login-body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      overflow: hidden;
+    }
+
+    .login-bg {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+    }
+    .bg-orb {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(80px);
+      opacity: 0.25;
+    }
+    .orb-1 {
+      width: 400px; height: 400px;
+      background: radial-gradient(circle, #3b82f6, transparent);
+      top: -100px; left: -100px;
+    }
+    .orb-2 {
+      width: 350px; height: 350px;
+      background: radial-gradient(circle, #8b5cf6, transparent);
+      bottom: -80px; right: -80px;
+    }
+
+    .login-container {
+      position: relative;
+      z-index: 10;
+      width: 100%;
+      max-width: 400px;
+      padding: 20px;
+    }
+
+    .login-card {
+      background: rgba(13, 20, 38, 0.9);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 24px;
+      padding: 40px 36px;
+      backdrop-filter: blur(30px);
+      box-shadow: 0 24px 64px rgba(0,0,0,0.7);
+      text-align: center;
+    }
+
+    .login-logo {
+      margin-bottom: 16px;
+    }
+    .logo-icon {
+      font-size: 3rem;
+      display: inline-block;
+      animation: float 3s ease-in-out infinite;
+    }
+    @keyframes float {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-8px); }
+    }
+
+    .login-title {
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 4px;
+    }
+    .login-sub {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-bottom: 32px;
+    }
+
+    .login-form {
+      text-align: left;
+    }
+
+    .field-group {
+      margin-bottom: 20px;
+    }
+
+    .field-group .pass-wrap input {
+      margin-bottom: 0;
+      text-align: center;
+      letter-spacing: 3px;
+      font-size: 1rem;
+    }
+
+    .error-text {
+      margin-top: 12px;
+      font-size: 0.82rem;
+      color: var(--danger);
+      text-align: center;
+    }
+  </style>
+
+  <script is:inline>
+    // Password toggle
+    document.querySelector('.pass-toggle')?.addEventListener('click', function() {
+      const input = document.getElementById('password');
+      const isText = input.type === 'text';
+      input.type = isText ? 'password' : 'text';
+      this.textContent = isText ? '👁️' : '🙈';
+    });
+
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const password = document.getElementById('password').value;
+      const btn = document.getElementById('login-btn');
+      const spinner = document.getElementById('btn-spinner');
+      const btnText = document.getElementById('btn-text');
+      const errMsg = document.getElementById('error-msg');
+
+      btn.disabled = true;
+      spinner.style.display = 'inline-block';
+      btnText.textContent = 'Verifying...';
+      errMsg.style.display = 'none';
+
+      try {
+        const res = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          btnText.textContent = '✓ Success!';
+          setTimeout(() => { window.location.href = '/products'; }, 400);
+        } else {
+          throw new Error('Invalid');
+        }
+      } catch {
+        errMsg.style.display = 'block';
+        btn.disabled = false;
+        spinner.style.display = 'none';
+        btnText.textContent = 'Authenticate →';
+        document.getElementById('password').focus();
+      }
+    });
+  </script>
+</body>
+</html>

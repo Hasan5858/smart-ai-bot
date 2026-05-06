@@ -1,0 +1,504 @@
+---
+import Dashboard from '../layouts/Dashboard.astro';
+import StatsCard from '../components/StatsCard.astro';
+import Modal from '../components/Modal.astro';
+import { queryDB } from '../lib/db';
+
+let subs: any[] = [];
+let products: any[] = [];
+let users: any[]    = [];
+let accounts: any[] = [];
+let stats = { active: 0, inactive: 0, paused: 0, expiringSoon: 0 };
+let totalCount = 0;
+
+const today = new Date();
+const in7Days = new Date(today); in7Days.setDate(today.getDate() + 7);
+const in7Str = in7Days.toISOString().split('T')[0];
+
+  try {
+    const [subRows, prodRows, accRows, countRow] = await Promise.all([
+      queryDB(Astro.locals, `SELECT s.*, u.telegram_name as user_name, p.name as product_name, a.name as account_name, a.account_username
+        FROM subscriptions s
+        LEFT JOIN users u ON s.user_id = u.id
+        LEFT JOIN products p ON s.product_id = p.id
+        LEFT JOIN accounts a ON s.account_id = a.id
+        ORDER BY s.expiry_date ASC LIMIT 10`),
+      queryDB(Astro.locals, "SELECT id, name FROM products WHERE description = 'Predefined Service' ORDER BY name"),
+      queryDB(Astro.locals, `
+        SELECT a.id, a.name, a.product_id, a.account_username, p.name as product_name 
+        FROM accounts a 
+        LEFT JOIN products p ON a.product_id = p.id 
+        ORDER BY p.name, a.name
+      `),
+      queryDB(Astro.locals, 'SELECT status, COUNT(*) as cnt FROM subscriptions GROUP BY status'),
+    ]);
+    subs     = subRows.results ?? [];
+    products = prodRows.results ?? [];
+    accounts = accRows.results ?? [];
+    (countRow.results ?? []).forEach((r: any) => {
+    totalCount += r.cnt;
+    if (r.status === 'active') stats.active = r.cnt;
+    else if (r.status === 'inactive') stats.inactive = r.cnt;
+    else if (r.status === 'paused') stats.paused = r.cnt;
+  });
+  stats.expiringSoon = subs.filter(s => s.status === 'active' && s.expiry_date <= in7Str).length;
+} catch (_) {}
+
+function daysLeft(expiryDate: string): number {
+  const diff = new Date(expiryDate).getTime() - today.getTime();
+  return Math.ceil(diff / (1000 * 60 * 60 * 24));
+}
+---
+
+<Dashboard title="Subscriptions" activePage="subscriptions">
+  <div class="page-header-wrap">
+    <div>
+      <h1>Subscriptions</h1>
+      <p>Track and manage all client subscriptions</p>
+    </div>
+    <button class="btn btn-primary" id="open-add-sub">+ Assign Subscription</button>
+  </div>
+
+  <div class="page-inner">
+    <div class="stats-row">
+      <StatsCard icon="💎" label="Total" value={totalCount} variant="blue" />
+      <StatsCard icon="✅" label="Active" value={stats.active} variant="green" />
+      <StatsCard icon="⚠️" label="Expiring ≤7 days" value={stats.expiringSoon} variant="yellow" />
+      <StatsCard icon="⏸️" label="Paused" value={stats.paused} variant="purple" />
+    </div>
+
+    <div class="card">
+      <div class="card-toolbar">
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+          <div class="search-wrap" style="position:relative">
+            <span class="search-icon" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:14px">🔍</span>
+            <input type="text" id="search-input" placeholder="Search users/products..." style="padding-left:32px;width:220px;margin:0" />
+          </div>
+          <select id="status-filter" style="width:160px;margin:0">
+            <option value="">All statuses</option>
+            <option value="active">✅ Active</option>
+            <option value="inactive">❌ Inactive</option>
+            <option value="paused">⏸️ Paused</option>
+          </select>
+        </div>
+        <div class="pagination">
+          <button class="btn btn-secondary btn-sm" id="prev-btn" disabled>← Prev</button>
+          <span id="page-info">Page 1</span>
+          <button class="btn btn-secondary btn-sm" id="next-btn">Next →</button>
+        </div>
+      </div>
+
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>User</th>
+              <th>Product</th>
+              <th>Account</th>
+              <th>Profile</th>
+              <th>Expiry</th>
+              <th>Amount</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="subs-tbody">
+            <tr><td colspan="8" style="text-align:center;padding:40px;color:var(--text-muted)">
+              <span class="spinner"></span>
+            </td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card-toolbar" style="border-bottom:none;border-top:1px solid var(--border);justify-content:flex-end">
+        <div class="pagination">
+          <button class="btn btn-secondary btn-sm" id="prev-btn-bottom" disabled>← Prev</button>
+          <span id="page-info-bottom">Page 1</span>
+          <button class="btn btn-secondary btn-sm" id="next-btn-bottom">Next →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Initial data passed to client -->
+  <script is:inline define:vars={{ initialSubs: subs }}>
+    window.__initialSubs = initialSubs;
+  </script>
+
+  <!-- Assign Subscription Modal -->
+  <Modal id="sub-modal" title="Assign Subscription" size="lg">
+    <form id="sub-form">
+      <input type="hidden" id="sub-id" />
+      <div class="form-row">
+        <div style="position:relative">
+          <label>User *</label>
+          <input type="hidden" id="sub-user" />
+          <input type="text" id="sub-user-search" placeholder="Type user name or @username..." autocomplete="off" />
+          <div id="user-suggestions" class="dropdown-suggestions hidden"></div>
+        </div>
+        <div>
+          <label>Product *</label>
+          <select id="sub-product" required>
+            <option value="">— Select product —</option>
+            {products.map(p => <option value={p.id}>{p.name}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <label>Account / Credentials</label>
+      <select id="sub-account">
+        <option value="">— None / Not linked —</option>
+        {accounts.map(a => <option value={a.id} data-product={a.product_id}>
+          {a.product_name} - {a.name} {a.account_username ? `(${a.account_username})` : ''}
+        </option>)}
+      </select>
+
+      <div class="form-row">
+        <div>
+          <label>Profile Name</label>
+          <input type="text" id="sub-profile" placeholder="Profile 1" />
+        </div>
+        <div>
+          <label>Profile PIN</label>
+          <input type="text" id="sub-pin" placeholder="1234" />
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div>
+          <label>Purchase Date *</label>
+          <input type="date" id="sub-pdate" required />
+        </div>
+        <div>
+          <label>Expiry Date *</label>
+          <input type="date" id="sub-edate" required />
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div>
+          <label>Amount Paid (Tk) *</label>
+          <input type="number" id="sub-amount" placeholder="450" required />
+        </div>
+        <div>
+          <label>Status</label>
+          <select id="sub-status">
+            <option value="active">✅ Active</option>
+            <option value="inactive">❌ Inactive</option>
+            <option value="paused">⏸️ Paused</option>
+          </select>
+        </div>
+      </div>
+    </form>
+    <div slot="footer">
+      <button class="btn btn-secondary" onclick="closeModal('sub-modal')">Cancel</button>
+      <button class="btn btn-primary" id="save-sub-btn">Save</button>
+    </div>
+  </Modal>
+</Dashboard>
+
+<style>
+  .page-header-wrap {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 16px; padding: 32px 32px 20px; flex-wrap: wrap;
+  }
+  .page-header-wrap h1 { font-size: 1.6rem; }
+  .page-header-wrap p  { color: var(--text-muted); font-size: 0.875rem; margin-top: 4px; }
+  .card-toolbar {
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 12px; padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .product-chip { background: var(--primary-glow); color: var(--primary); padding: 3px 10px; border-radius: 999px; font-size: 0.78rem; font-weight: 600; }
+  .exp-danger { color: var(--danger); }
+  .exp-warn   { color: var(--warning); }
+  .exp-ok     { color: var(--text-secondary); }
+  .days-pill  { background: var(--warning-bg); color: var(--warning); padding: 2px 7px; border-radius: 999px; font-size: 0.72rem; font-weight: 700; margin-left: 6px; }
+  .days-pill.danger { background: var(--danger-bg); color: var(--danger); }
+  .row-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+  .price { color: var(--primary); font-weight: 600; }
+  .font-weight-600 { font-weight: 600; }
+  
+  .dropdown-suggestions {
+    position: absolute; top: calc(100% - 10px); left: 0; right: 0;
+    background: var(--bg-card);
+    border: 1px solid var(--border-input);
+    border-radius: var(--radius-md);
+    max-height: 200px; overflow-y: auto;
+    z-index: 100;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  }
+  .dropdown-suggestions.hidden { display: none; }
+  .suggestion-item { padding: 8px 12px; cursor: pointer; border-bottom: 1px solid var(--border); }
+  .suggestion-item:last-child { border-bottom: none; }
+  .suggestion-item:hover { background: var(--bg-hover); }
+</style>
+
+<script is:inline>
+  let currentPage = 1;
+  let totalPages  = 1;
+  let statusFilter = '';
+  let searchQuery = '';
+  let searchTimer = null;
+
+  function escHtml(s) {
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function daysLeft(d) {
+    return Math.ceil((new Date(d) - new Date()) / 86400000);
+  }
+
+  function renderSubs(subs) {
+    const tbody = document.getElementById('subs-tbody');
+    if (!subs.length) {
+      tbody.innerHTML = `<tr><td colspan="8" class="empty-state"><div class="empty-icon">💎</div><p>No subscriptions found.</p></td></tr>`;
+      return;
+    }
+    tbody.innerHTML = subs.map(s => {
+      const days = daysLeft(s.expiry_date);
+      const expCls = days <= 0 ? 'exp-danger' : days <= 7 ? 'exp-warn' : 'exp-ok';
+      const badgeCls = s.status === 'active' ? 'badge-success' : s.status === 'paused' ? 'badge-warning' : 'badge-danger';
+      const expiryPill = days <= 0 ? `<span class="days-pill danger">🔴 Expired</span>`
+                       : days <= 7 ? `<span class="days-pill">⚠️ ${days}d</span>` : '';
+      return `<tr data-id="${s.id}" data-status="${s.status}" data-expiry="${s.expiry_date}"
+          data-amount="${s.purchase_amount}" data-profile="${escHtml(s.profile_name||'')}"
+          data-pin="${escHtml(s.profile_pin||'')}" data-account="${s.account_id||''}"
+          data-user="${s.user_id||''}" data-username="${escHtml(s.user_name||'')}" data-product="${s.product_id||''}" data-pdate="${s.purchase_date||''}">
+        <td style="font-weight:600">${escHtml(s.user_name||'—')}</td>
+        <td><span class="product-chip">${escHtml(s.product_name||'—')}</span></td>
+        <td>
+          <div class="text-sm font-weight-600">${escHtml(s.account_name||'—')}</div>
+          ${s.account_username ? `<div style="font-size:0.75rem; color:var(--text-muted); font-family:monospace; margin-top:2px">${escHtml(s.account_username)}</div>` : ''}
+        </td>
+        <td class="text-muted text-sm">${escHtml(s.profile_name||'—')}</td>
+        <td><span class="${expCls}">${s.expiry_date}${expiryPill}</span></td>
+        <td class="price">${s.purchase_amount} ৳</td>
+        <td><span class="badge ${badgeCls}"><span class="badge-dot"></span>${s.status}</span></td>
+        <td><div class="row-actions">
+          <button class="btn btn-icon btn-secondary edit-btn">✏️</button>
+          <button class="btn btn-icon btn-danger delete-btn">🗑️</button>
+        </div></td>
+      </tr>`;
+    }).join('');
+  }
+
+  async function loadSubs(page = 1) {
+    currentPage = page;
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const userId = urlParams.get('user_id');
+      const accountId = urlParams.get('account_id');
+      const params = new URLSearchParams({ page });
+      if (statusFilter) params.set('status', statusFilter);
+      if (userId) params.set('user_id', userId);
+      if (accountId) params.set('account_id', accountId);
+      if (searchQuery) params.set('search', searchQuery);
+      
+      const data = await api(`/api/subscriptions?${params}`);
+      totalPages = data.pages || 1;
+      renderSubs(data.subscriptions);
+      document.getElementById('page-info').textContent = `Page ${page} of ${totalPages}`;
+      document.getElementById('page-info-bottom').textContent = `Page ${page} of ${totalPages}`;
+      document.getElementById('prev-btn').disabled = page <= 1;
+      document.getElementById('next-btn').disabled = page >= totalPages;
+      document.getElementById('prev-btn-bottom').disabled = page <= 1;
+      document.getElementById('next-btn-bottom').disabled = page >= totalPages;
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  }
+
+  const doPrev = () => loadSubs(currentPage - 1);
+  const doNext = () => loadSubs(currentPage + 1);
+  document.getElementById('prev-btn').onclick = doPrev;
+  document.getElementById('next-btn').onclick = doNext;
+  document.getElementById('prev-btn-bottom').onclick = doPrev;
+  document.getElementById('next-btn-bottom').onclick = doNext;
+
+  document.getElementById('status-filter').addEventListener('change', (e) => {
+    statusFilter = e.target.value;
+    loadSubs(1);
+  });
+
+  document.getElementById('search-input').addEventListener('input', (e) => {
+    searchQuery = e.target.value.trim();
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => loadSubs(1), 350);
+  });
+
+  // Filter accounts by selected product
+  document.getElementById('sub-product').addEventListener('change', function() {
+    const pid = this.value;
+    document.querySelectorAll('#sub-account option').forEach(opt => {
+      if (!opt.value) return;
+      opt.hidden = opt.dataset.product && opt.dataset.product !== pid;
+    });
+    document.getElementById('sub-account').value = '';
+  });
+
+  document.getElementById('open-add-sub').onclick = () => {
+    document.getElementById('sub-id').value = '';
+    document.getElementById('sub-form').reset();
+    document.getElementById('sub-user').value = '';
+    document.getElementById('sub-user-search').value = '';
+    document.getElementById('sub-user-search').disabled = false;
+    document.querySelector('#sub-modal .modal-header h2').textContent = 'Assign Subscription';
+    document.getElementById('sub-pdate').value = new Date().toISOString().split('T')[0];
+
+    // Pre-fill account if filtered by account
+    const accId = new URLSearchParams(window.location.search).get('account_id');
+    if (accId) {
+      const accOpt = document.querySelector(`#sub-account option[value="${accId}"]`);
+      if (accOpt && accOpt.dataset.product) {
+        document.getElementById('sub-product').value = accOpt.dataset.product;
+        // Trigger product change to filter accounts
+        document.getElementById('sub-product').dispatchEvent(new Event('change'));
+        document.getElementById('sub-account').value = accId;
+      }
+    } else {
+      document.getElementById('sub-product').dispatchEvent(new Event('change'));
+    }
+
+    openModal('sub-modal');
+  };
+
+  document.getElementById('subs-tbody').addEventListener('click', (e) => {
+    const row = e.target.closest('tr[data-id]');
+    if (!row) return;
+
+
+
+    if (e.target.closest('.edit-btn')) {
+      document.getElementById('sub-id').value = row.dataset.id;
+      document.getElementById('sub-status').value = row.dataset.status;
+      document.getElementById('sub-edate').value = row.dataset.expiry;
+      document.getElementById('sub-amount').value = row.dataset.amount;
+      document.getElementById('sub-profile').value = row.dataset.profile;
+      document.getElementById('sub-pin').value = row.dataset.pin;
+      document.getElementById('sub-user').value = row.dataset.user;
+      document.getElementById('sub-user-search').value = row.dataset.username;
+      document.getElementById('sub-user-search').disabled = true;
+      document.getElementById('sub-product').value = row.dataset.product;
+      document.getElementById('sub-pdate').value = row.dataset.pdate;
+      
+      // Update account dropdown visibility based on selected product
+      const pid = row.dataset.product;
+      document.querySelectorAll('#sub-account option').forEach(opt => {
+        if (!opt.value) return;
+        opt.hidden = opt.dataset.product && opt.dataset.product !== pid;
+      });
+      document.getElementById('sub-account').value = row.dataset.account;
+      
+      document.querySelector('#sub-modal .modal-header h2').textContent = 'Edit Subscription';
+      openModal('sub-modal');
+    }
+
+    if (e.target.closest('.delete-btn') && confirmDelete('Delete this subscription?')) {
+      api('/api/subscriptions', { method: 'DELETE', body: { id: Number(row.dataset.id) } })
+        .then(() => { showToast('Subscription deleted'); loadSubs(currentPage); })
+        .catch(err => showToast(err.message, 'error'));
+    }
+  });
+
+  document.getElementById('save-sub-btn').onclick = async () => {
+    const id      = document.getElementById('sub-id').value;
+    const userId  = document.getElementById('sub-user').value;
+    const prodId  = document.getElementById('sub-product').value;
+    const accId   = document.getElementById('sub-account').value;
+    const pdate   = document.getElementById('sub-pdate').value;
+    const edate   = document.getElementById('sub-edate').value;
+    const amount  = document.getElementById('sub-amount').value;
+    const status  = document.getElementById('sub-status').value;
+    const profile = document.getElementById('sub-profile').value;
+    const pin     = document.getElementById('sub-pin').value;
+
+    if (!edate || !amount) { showToast('Date and amount required', 'error'); return; }
+
+    const btn = document.getElementById('save-sub-btn');
+    btn.disabled = true; btn.textContent = 'Saving...';
+    try {
+      if (id) {
+        await api('/api/subscriptions', { method: 'PUT', body: {
+          id: Number(id), status, expiry_date: edate, purchase_amount: Number(amount),
+          profile_name: profile||null, profile_pin: pin||null, account_id: accId||null
+        }});
+        showToast('Subscription updated ✓');
+      } else {
+        if (!userId || !prodId || !pdate) { showToast('User, product, dates required', 'error'); return; }
+        await api('/api/subscriptions', { method: 'POST', body: {
+          user_id: Number(userId), product_id: Number(prodId), account_id: accId||null,
+          profile_name: profile||null, profile_pin: pin||null,
+          purchase_date: pdate, expiry_date: edate, purchase_amount: Number(amount), status
+        }});
+        showToast('Subscription created ✓');
+      }
+      closeModal('sub-modal');
+      loadSubs(currentPage);
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      btn.disabled = false; btn.textContent = 'Save';
+    }
+  };
+
+
+
+  // Render initial SSR data instantly (no extra fetch on page load) unless filtered
+  const hasUserFilter = new URLSearchParams(window.location.search).has('user_id');
+  const hasAccFilter = new URLSearchParams(window.location.search).has('account_id');
+  if (window.__initialSubs && window.__initialSubs.length > 0 && !hasUserFilter && !hasAccFilter) {
+    renderSubs(window.__initialSubs);
+    document.getElementById('page-info').textContent = 'Page 1';
+    document.getElementById('page-info-bottom').textContent = 'Page 1';
+  } else {
+    loadSubs(1);
+  }
+
+  // Auto-complete logic for Users
+  let userSearchTimer = null;
+  const userSearchInp = document.getElementById('sub-user-search');
+  const userSuggestions = document.getElementById('user-suggestions');
+  const subUserHidden = document.getElementById('sub-user');
+
+  userSearchInp.addEventListener('input', (e) => {
+    const term = e.target.value.trim();
+    subUserHidden.value = ''; // reset on type
+    userSuggestions.classList.add('hidden');
+    
+    if (term.length < 2) return;
+    
+    clearTimeout(userSearchTimer);
+    userSearchTimer = setTimeout(async () => {
+      try {
+        const res = await api(`/api/users?search=${encodeURIComponent(term)}&limit=10`);
+        const users = res.users || [];
+        if (!users.length) {
+          userSuggestions.innerHTML = `<div style="padding:8px 12px;color:var(--text-muted)">No users found.</div>`;
+        } else {
+          userSuggestions.innerHTML = users.map(u => `
+            <div class="suggestion-item" data-id="${u.id}" data-name="${escHtml(u.name)}" data-username="${escHtml(u.username||'')}">
+              <div style="font-weight:600">${escHtml(u.name)}</div>
+              ${u.username ? `<div style="font-size:0.75rem;color:var(--text-muted)">@${escHtml(u.username)}</div>` : ''}
+            </div>
+          `).join('');
+        }
+        userSuggestions.classList.remove('hidden');
+      } catch(err) {}
+    }, 350);
+  });
+
+  userSuggestions.addEventListener('click', (e) => {
+    const item = e.target.closest('.suggestion-item');
+    if (!item) return;
+    subUserHidden.value = item.dataset.id;
+    userSearchInp.value = item.dataset.name + (item.dataset.username ? ` (@${item.dataset.username})` : '');
+    userSuggestions.classList.add('hidden');
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#user-suggestions') && e.target !== userSearchInp) {
+      userSuggestions.classList.add('hidden');
+    }
+  });
+</script>
+

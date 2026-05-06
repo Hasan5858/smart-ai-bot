@@ -1,0 +1,39 @@
+name = "bot-worker"
+main = "src/index.js"
+compatibility_date = "2024-04-14"
+account_id = "your-account-id"
+
+# Bind Cloudflare AI
+[ai]
+binding = "AI"
+
+# Service Binding to db-worker
+[[services]]
+binding = "DB_WORKER"
+service = "db-worker"
+
+[vars]
+# Used for environment switching
+IS_LOCAL = "true" 
+LOCAL_DB_URL = "https://db-worker.your-subdomain.workers.dev"
+
+# Setup your Telegram bot token via `npx wrangler secret put TELEGRAM_BOT_TOKEN`
+# Setup your DB secret via `npx wrangler secret put DB_SECRET_TOKEN`
+DB_SECRET_TOKEN = "your-secret-token"
+
+# ─── Cron Trigger ─────────────────────────────────────────────────────────────
+# Runs every day at 03:00 UTC = 09:00 AM Bangladesh Standard Time (BST = UTC+6)
+# Sends subscription expiry reminders to users (7-day + 1-day warnings)
+[triggers]
+crons = ["0 3 * * *"]
+
+# ─── Queues ───────────────────────────────────────────────────────────────────
+[[queues.producers]]
+binding = "OTP_QUEUE"
+queue = "otp-queue"
+
+[[queues.consumers]]
+queue = "otp-queue"
+max_batch_size = 10
+max_batch_timeout = 5
+max_retries = 3

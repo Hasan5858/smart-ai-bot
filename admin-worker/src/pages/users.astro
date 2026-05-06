@@ -1,0 +1,257 @@
+---
+import Dashboard from '../layouts/Dashboard.astro';
+import StatsCard from '../components/StatsCard.astro';
+import Modal from '../components/Modal.astro';
+import { queryDB } from '../lib/db';
+
+let users: any[] = [];
+let totalCount = 0;
+try {
+  const [rows, count] = await Promise.all([
+    queryDB(Astro.locals, 'SELECT id, telegram_id, telegram_username as username, telegram_name as name, user_type, created_at, email FROM users ORDER BY id DESC LIMIT 15'),
+    queryDB(Astro.locals, 'SELECT COUNT(*) as total, SUM(CASE WHEN user_type="manual" THEN 1 ELSE 0 END) as manual_count FROM users'),
+  ]);
+  users = rows.results ?? [];
+  totalCount = count.results?.[0]?.total ?? 0;
+} catch (_) {}
+
+const manualCount = users.filter(u => u.telegram_id === 0).length;
+const botCount    = totalCount - manualCount;
+---
+
+<Dashboard title="Users" activePage="users">
+  <div class="page-header-wrap">
+    <div>
+      <h1>Users</h1>
+      <p>Manage Telegram users and manual registrations</p>
+    </div>
+    <button class="btn btn-primary" id="open-add-user">+ Add User</button>
+  </div>
+
+  <div class="page-inner">
+    <div class="stats-row">
+      <StatsCard icon="👥" label="Total Users" value={totalCount} variant="blue" />
+      <StatsCard icon="🤖" label="Via Telegram Bot" variant="purple"
+        value={(totalCount - manualCount) >= 0 ? totalCount - manualCount : 0} />
+      <StatsCard icon="✍️" label="Manually Added" value={manualCount} variant="green" />
+    </div>
+
+    <div class="card">
+      <div class="card-toolbar">
+        <div class="search-wrap">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="search-input" placeholder="Search users..." />
+        </div>
+        <div class="pagination">
+          <button class="btn btn-secondary btn-sm" id="prev-btn" disabled>← Prev</button>
+          <span id="page-info">Page 1</span>
+          <button class="btn btn-secondary btn-sm" id="next-btn">Next →</button>
+        </div>
+      </div>
+
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Name</th>
+              <th>Username</th>
+              <th>Telegram ID</th>
+              <th>Email</th>
+              <th>Type</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="users-tbody">
+            {users.length > 0 ? users.map(u => (
+              <tr data-id={u.id} data-name={u.name||''} data-username={u.username||''} data-tid={u.telegram_id||''} data-email={u.email||''}>
+                <td class="text-muted font-mono">{u.id}</td>
+                <td style="font-weight:600">{u.name}</td>
+                <td class="text-muted">{u.username ? `@${u.username}` : '—'}</td>
+                <td class="font-mono text-muted">{u.telegram_id ?? '—'}</td>
+                <td class="text-muted">{u.email ?? '—'}</td>
+                <td>
+                  <span class={`badge ${!u.telegram_id || u.telegram_id === 0 ? 'badge-info' : 'badge-success'}`}>
+                    {!u.telegram_id || u.telegram_id === 0 ? '✍️ Manual' : '🤖 Bot'}
+                  </span>
+                </td>
+                <td>
+                  <div class="row-actions" style="display:flex;gap:4px">
+                    <button class="btn btn-sm btn-secondary manage-subs-btn" title="Manage Subscriptions">💎 Subs</button>
+                    <button class="btn btn-icon btn-secondary edit-btn" title="Edit User">✏️</button>
+                    <button class="btn btn-icon btn-danger delete-btn" title="Delete User">🗑️</button>
+                  </div>
+                </td>
+              </tr>
+            )) : (
+              <tr><td colspan="7" class="empty-state">
+                <div class="empty-icon">👥</div><p>No users yet.</p>
+              </td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <Modal id="user-modal" title="Add User">
+    <form id="user-form">
+      <input type="hidden" id="u-id" />
+      <label>Telegram Name *</label>
+      <input type="text" id="u-name" placeholder="John Doe" required />
+      <div class="form-row">
+        <div>
+          <label>Email (optional)</label>
+          <input type="email" id="u-email" placeholder="john@email.com" />
+        </div>
+        <div>
+          <label>Telegram ID (optional)</label>
+          <input type="number" id="u-tid" placeholder="123456789" />
+        </div>
+      </div>
+      <label>Username (optional)</label>
+      <div style="display:flex;align-items:center;gap:0;margin-bottom:0">
+        <span style="padding:10px 12px;background:rgba(0,0,0,0.3);border:1px solid var(--border-input);border-right:none;border-radius:var(--radius-md) 0 0 var(--radius-md);color:var(--text-muted)">@</span>
+        <input type="text" id="u-username" placeholder="johndoe"
+          style="border-radius:0 var(--radius-md) var(--radius-md) 0;margin-bottom:0" />
+      </div>
+    </form>
+    <div slot="footer">
+      <button class="btn btn-secondary" onclick="closeModal('user-modal')">Cancel</button>
+      <button class="btn btn-primary" id="save-user-btn">Add User</button>
+    </div>
+  </Modal>
+</Dashboard>
+
+<style>
+  .page-header-wrap {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 16px; padding: 32px 32px 20px; flex-wrap: wrap;
+  }
+  .page-header-wrap h1 { font-size: 1.6rem; }
+  .page-header-wrap p  { color: var(--text-muted); font-size: 0.875rem; margin-top: 4px; }
+  .card-toolbar {
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 12px; padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .search-wrap input { width: 220px; margin: 0; }
+</style>
+
+<script is:inline>
+  let currentPage = 1;
+  let totalPages  = 1;
+  let searchQuery = '';
+  let searchTimer = null;
+
+  function renderUsers(users) {
+    const tbody = document.getElementById('users-tbody');
+    if (!users.length) {
+      tbody.innerHTML = `<tr><td colspan="7" class="empty-state"><div class="empty-icon">👥</div><p>No users found.</p></td></tr>`;
+      return;
+    }
+    tbody.innerHTML = users.map(u => `
+      <tr data-id="${u.id}" data-name="${escHtml(u.name||'')}" data-username="${escHtml(u.username||'')}" data-tid="${escHtml(u.telegram_id||'')}" data-email="${escHtml(u.email||'')}">
+        <td class="text-muted font-mono">${u.id}</td>
+        <td style="font-weight:600">${escHtml(u.name)}</td>
+        <td class="text-muted">${u.username ? '@' + escHtml(u.username) : '—'}</td>
+        <td class="font-mono text-muted">${u.telegram_id ?? '—'}</td>
+        <td class="text-muted">${escHtml(u.email ?? '—')}</td>
+        <td><span class="badge ${!u.telegram_id || u.telegram_id === 0 ? 'badge-info' : 'badge-success'}">
+          ${!u.telegram_id || u.telegram_id === 0 ? '✍️ Manual' : '🤖 Bot'}</span></td>
+        <td>
+          <div class="row-actions" style="display:flex;gap:4px">
+            <button class="btn btn-sm btn-secondary manage-subs-btn" title="Manage Subscriptions">💎 Subs</button>
+            <button class="btn btn-icon btn-secondary edit-btn" title="Edit User">✏️</button>
+            <button class="btn btn-icon btn-danger delete-btn" title="Delete User">🗑️</button>
+          </div>
+        </td>
+      </tr>`).join('');
+  }
+
+  function escHtml(s) {
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  async function loadUsers(page = 1) {
+    currentPage = page;
+    try {
+      const params = new URLSearchParams({ page, ...(searchQuery ? { search: searchQuery } : {}) });
+      const data = await api(`/api/users?${params}`);
+      totalPages = data.pages || 1;
+      renderUsers(data.users);
+      document.getElementById('page-info').textContent = `Page ${page} of ${totalPages}`;
+      document.getElementById('prev-btn').disabled = page <= 1;
+      document.getElementById('next-btn').disabled = page >= totalPages;
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  }
+
+  document.getElementById('prev-btn').onclick = () => loadUsers(currentPage - 1);
+  document.getElementById('next-btn').onclick = () => loadUsers(currentPage + 1);
+
+  document.getElementById('search-input').addEventListener('input', (e) => {
+    searchQuery = e.target.value.trim();
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => loadUsers(1), 350);
+  });
+
+  document.getElementById('open-add-user').onclick = () => {
+    document.getElementById('user-form').reset();
+    document.getElementById('u-id').value = '';
+    document.querySelector('#user-modal .modal-header h2').textContent = 'Add User';
+    openModal('user-modal');
+  };
+
+  document.getElementById('users-tbody').addEventListener('click', (e) => {
+    const row = e.target.closest('tr');
+    if (!row) return;
+
+    if (e.target.closest('.manage-subs-btn')) {
+      window.location.href = '/subscriptions?user_id=' + row.dataset.id;
+    }
+
+    if (e.target.closest('.edit-btn')) {
+      document.getElementById('u-id').value = row.dataset.id;
+      document.getElementById('u-name').value = row.dataset.name || '';
+      document.getElementById('u-email').value = row.dataset.email || '';
+      document.getElementById('u-username').value = row.dataset.username || '';
+      document.getElementById('u-tid').value = row.dataset.tid || '';
+      document.querySelector('#user-modal .modal-header h2').textContent = 'Edit User';
+      openModal('user-modal');
+    }
+
+    const deleteBtn = e.target.closest('.delete-btn');
+    if (deleteBtn && confirmDelete('Delete this user? This may affect their subscriptions.')) {
+      api('/api/users', { method: 'DELETE', body: { id: Number(row.dataset.id) } })
+        .then(() => { showToast('User deleted'); loadUsers(currentPage); })
+        .catch(err => showToast(err.message, 'error'));
+    }
+  });
+
+  document.getElementById('save-user-btn').onclick = async () => {
+    const id       = document.getElementById('u-id').value;
+    const name     = document.getElementById('u-name').value.trim();
+    const email    = document.getElementById('u-email').value.trim();
+    const username = document.getElementById('u-username').value.trim();
+    const tid      = document.getElementById('u-tid').value.trim();
+    if (!name) { showToast('Name is required', 'error'); return; }
+
+    const btn = document.getElementById('save-user-btn');
+    btn.disabled = true; btn.textContent = 'Saving...';
+    try {
+      const method = id ? 'PUT' : 'POST';
+      const body = id ? { id: Number(id), name, email: email||null, username: username||null, telegram_id: tid||null }
+                      : { name, email: email||null, username: username||null, telegram_id: tid||null };
+      await api('/api/users', { method, body });
+      showToast(id ? 'User updated ✓' : 'User added ✓');
+      closeModal('user-modal');
+      loadUsers(1);
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      btn.disabled = false; btn.textContent = 'Add User';
+    }
+  };
+</script>

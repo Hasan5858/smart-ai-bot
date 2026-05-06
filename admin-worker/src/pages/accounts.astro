@@ -1,0 +1,287 @@
+---
+import Dashboard from '../layouts/Dashboard.astro';
+import StatsCard from '../components/StatsCard.astro';
+import Badge from '../components/Badge.astro';
+import Modal from '../components/Modal.astro';
+import { queryDB } from '../lib/db';
+
+let accounts: any[] = [];
+let products: any[] = [];
+let stats = { active: 0, suspended: 0, inactive: 0 };
+
+try {
+  const [accRows, prodRows] = await Promise.all([
+    queryDB(Astro.locals, `SELECT a.id, a.name, a.product_id, a.account_username as username, a.account_password as password, a.status, a.created_at, p.name as product_name FROM accounts a
+      LEFT JOIN products p ON a.product_id = p.id ORDER BY a.id DESC`),
+    queryDB(Astro.locals, "SELECT id, name FROM products WHERE description = 'Predefined Service' ORDER BY name ASC"),
+  ]);
+  accounts = accRows.results ?? [];
+  products = prodRows.results ?? [];
+  accounts.forEach((a: any) => {
+    if (a.status === 'active') stats.active++;
+    else if (a.status === 'suspended') stats.suspended++;
+    else stats.inactive++;
+  });
+} catch (_) {}
+---
+
+<Dashboard title="Accounts" activePage="accounts">
+  <div class="page-header-wrap">
+    <div>
+      <h1>Service Accounts</h1>
+      <p>Manage streaming service credentials</p>
+    </div>
+    <button class="btn btn-primary" id="open-add-acc">+ Add Account</button>
+  </div>
+
+  <div class="page-inner">
+    <div class="stats-row">
+      <StatsCard icon="🔑" label="Total Accounts" value={accounts.length} variant="blue" />
+      <StatsCard icon="🟢" label="Active" value={stats.active} variant="green" />
+      <StatsCard icon="🔴" label="Suspended" value={stats.suspended} variant="red" />
+      <StatsCard icon="⚪" label="Inactive" value={stats.inactive} variant="purple" />
+    </div>
+
+    <div class="card">
+      <div class="card-toolbar">
+        <div class="search-wrap">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="search-input" placeholder="Filter accounts..." />
+        </div>
+        <select id="status-filter" style="width:140px;margin:0">
+          <option value="">All statuses</option>
+          <option value="active">🟢 Active</option>
+          <option value="suspended">🔴 Suspended</option>
+          <option value="inactive">⚪ Inactive</option>
+        </select>
+      </div>
+
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Product</th>
+              <th>Batch Name</th>
+              <th>Login / Email</th>
+              <th>Password</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="accounts-tbody">
+            {accounts.length > 0 ? accounts.map(a => (
+              <tr data-id={a.id} data-product={a.product_id} data-name={a.name}
+                  data-username={a.username} data-password={a.password} data-status={a.status}>
+                <td><span class="product-chip">{a.product_name}</span></td>
+                <td style="font-weight:600">{a.name}</td>
+                <td class="font-mono text-secondary">{a.username}</td>
+                <td>
+                  <div class="pass-wrap">
+                    <input type="password" value={a.password} readonly
+                      style="margin:0;padding:6px 10px;width:130px;font-size:0.82rem;background:rgba(0,0,0,0.3)" />
+                    <button class="pass-toggle" type="button">👁️</button>
+                  </div>
+                </td>
+                <td><Badge status={a.status} /></td>
+                <td>
+                  <div class="row-actions" style="display:flex;gap:4px">
+                    <button class="btn btn-sm btn-secondary view-users-btn" title="View Users">👥 Users</button>
+                    <button class="btn btn-icon btn-secondary edit-btn" title="Edit">✏️</button>
+                    <button class="btn btn-icon btn-danger delete-btn" title="Delete">🗑️</button>
+                  </div>
+                </td>
+              </tr>
+            )) : (
+              <tr><td colspan="6" class="empty-state">
+                <div class="empty-icon">🔑</div><p>No accounts yet.</p>
+              </td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <Modal id="acc-modal" title="Add Account">
+    <form id="acc-form">
+      <input type="hidden" id="acc-id" />
+      <label>Product / Platform *</label>
+      <select id="acc-product" required>
+        {products.map(p => <option value={p.id}>{p.name}</option>)}
+      </select>
+      <label>Batch Name *</label>
+      <input type="text" id="acc-name" placeholder="Netflix Batch 1" required />
+      <label>Login Email / Username *</label>
+      <input type="text" id="acc-username" placeholder="user@netflix.com" required />
+      <label>Password *</label>
+      <div class="pass-wrap">
+        <input type="password" id="acc-password" placeholder="••••••••" required style="margin-bottom:0" />
+        <button type="button" class="pass-toggle">👁️</button>
+      </div>
+      <div style="height:16px"></div>
+      <label>Status</label>
+      <select id="acc-status">
+        <option value="active">🟢 Active</option>
+        <option value="suspended">🔴 Suspended</option>
+        <option value="inactive">⚪ Inactive</option>
+      </select>
+    </form>
+    <div slot="footer">
+      <button class="btn btn-secondary" onclick="closeModal('acc-modal')">Cancel</button>
+      <button class="btn btn-primary" id="save-acc-btn">Save Account</button>
+    </div>
+  </Modal>
+</Dashboard>
+
+<style>
+  .page-header-wrap {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 16px; padding: 32px 32px 20px; flex-wrap: wrap;
+  }
+  .page-header-wrap h1 { font-size: 1.6rem; }
+  .page-header-wrap p  { color: var(--text-muted); font-size: 0.875rem; margin-top: 4px; }
+  .card-toolbar {
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 12px; padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .search-wrap input { width: 220px; margin: 0; }
+  .product-chip {
+    background: var(--primary-glow);
+    color: var(--primary);
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 600;
+  }
+  .row-actions { display: flex; gap: 4px; }
+  .text-secondary { color: var(--text-secondary); }
+</style>
+
+<script is:inline>
+  const allProducts = JSON.parse(document.getElementById('acc-product')?.innerHTML
+    .match(/value="(\d+)">([^<]+)/g)?.map(m => {
+      const [,id,name] = m.match(/value="(\d+)">(.+)/);
+      return JSON.stringify({id,name});
+    }).join(',')?.replace(/^/,'[')?.replace(/$/,']') || '[]');
+
+  function escHtml(s) {
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function renderAccounts(accounts) {
+    const tbody = document.getElementById('accounts-tbody');
+    if (!accounts.length) {
+      tbody.innerHTML = `<tr><td colspan="6" class="empty-state"><div class="empty-icon">🔑</div><p>No accounts found.</p></td></tr>`;
+      return;
+    }
+    tbody.innerHTML = accounts.map(a => `
+      <tr data-id="${a.id}" data-product="${a.product_id}" data-name="${escHtml(a.name)}"
+          data-username="${escHtml(a.username)}" data-password="${escHtml(a.password||'')}" data-status="${a.status}">
+        <td><span class="product-chip">${escHtml(a.product_name||'—')}</span></td>
+        <td style="font-weight:600">${escHtml(a.name)}</td>
+        <td class="font-mono text-secondary">${escHtml(a.username)}</td>
+        <td><div class="pass-wrap">
+          <input type="password" value="${escHtml(a.password||'')}" readonly
+            style="margin:0;padding:6px 10px;width:130px;font-size:0.82rem;background:rgba(0,0,0,0.3)" />
+          <button class="pass-toggle" type="button">👁️</button>
+        </div></td>
+        <td>${badgeHtml(a.status)}</td>
+        <td><div class="row-actions" style="display:flex;gap:4px">
+          <button class="btn btn-sm btn-secondary view-users-btn" title="View Users">👥 Users</button>
+          <button class="btn btn-icon btn-secondary edit-btn" title="Edit">✏️</button>
+          <button class="btn btn-icon btn-danger delete-btn" title="Delete">🗑️</button>
+        </div></td>
+      </tr>`).join('');
+  }
+
+  function badgeHtml(status) {
+    const map = { active:'badge-success', suspended:'badge-danger', inactive:'badge-muted' };
+    const cls = map[status] || 'badge-muted';
+    return `<span class="badge ${cls}"><span class="badge-dot"></span>${status}</span>`;
+  }
+
+  async function loadAccounts() {
+    try {
+      const search = document.getElementById('search-input').value.trim();
+      const status = document.getElementById('status-filter').value;
+      const params = new URLSearchParams();
+      if (search) params.set('search', search);
+      if (status) params.set('status', status);
+      const data = await api(`/api/accounts?${params}`);
+      renderAccounts(data.accounts || []);
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  }
+
+  let filterTimer;
+  document.getElementById('search-input').addEventListener('input', () => {
+    clearTimeout(filterTimer);
+    filterTimer = setTimeout(loadAccounts, 300);
+  });
+  document.getElementById('status-filter').addEventListener('change', loadAccounts);
+
+  document.getElementById('open-add-acc').onclick = () => {
+    document.getElementById('acc-id').value = '';
+    document.getElementById('acc-form').reset();
+    document.querySelector('#acc-modal .modal-header h2').textContent = 'Add Account';
+    openModal('acc-modal');
+  };
+
+  document.getElementById('accounts-tbody').addEventListener('click', (e) => {
+    const row = e.target.closest('tr[data-id]');
+    if (!row) return;
+
+    if (e.target.closest('.view-users-btn')) {
+      window.location.href = `/subscriptions?account_id=${row.dataset.id}`;
+      return;
+    }
+
+    if (e.target.closest('.edit-btn')) {
+      document.getElementById('acc-id').value = row.dataset.id;
+      document.getElementById('acc-product').value = row.dataset.product;
+      document.getElementById('acc-name').value = row.dataset.name;
+      document.getElementById('acc-username').value = row.dataset.username;
+      document.getElementById('acc-password').value = row.dataset.password;
+      document.getElementById('acc-status').value = row.dataset.status;
+      document.querySelector('#acc-modal .modal-header h2').textContent = 'Edit Account';
+      openModal('acc-modal');
+    }
+
+    if (e.target.closest('.delete-btn') && confirmDelete('Delete this account?')) {
+      api('/api/accounts', { method: 'DELETE', body: { id: Number(row.dataset.id) } })
+        .then(() => { showToast('Account deleted'); loadAccounts(); })
+        .catch(err => showToast(err.message, 'error'));
+    }
+  });
+
+  document.getElementById('save-acc-btn').onclick = async () => {
+    const id         = document.getElementById('acc-id').value;
+    const product_id = document.getElementById('acc-product').value;
+    const name       = document.getElementById('acc-name').value.trim();
+    const username   = document.getElementById('acc-username').value.trim();
+    const password   = document.getElementById('acc-password').value;
+    const status     = document.getElementById('acc-status').value;
+
+    if (!product_id || !name || !username || !password) {
+      showToast('All required fields must be filled', 'error'); return;
+    }
+
+    const btn = document.getElementById('save-acc-btn');
+    btn.disabled = true; btn.textContent = 'Saving...';
+    try {
+      const method = id ? 'PUT' : 'POST';
+      const body = id ? { id: Number(id), product_id, name, username, password, status }
+                      : { product_id, name, username, password, status };
+      await api('/api/accounts', { method, body });
+      showToast(id ? 'Account updated ✓' : 'Account added ✓');
+      closeModal('acc-modal');
+      loadAccounts();
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      btn.disabled = false; btn.textContent = 'Save Account';
+    }
+  };
+</script>

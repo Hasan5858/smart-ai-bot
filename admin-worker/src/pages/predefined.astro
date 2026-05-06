@@ -1,0 +1,184 @@
+---
+import Dashboard from '../layouts/Dashboard.astro';
+import StatsCard from '../components/StatsCard.astro';
+import Modal from '../components/Modal.astro';
+import { queryDB } from '../lib/db';
+
+let items: any[] = [];
+try {
+  const rows = await queryDB(Astro.locals, 'SELECT * FROM predefined_products ORDER BY id DESC');
+  items = rows.results ?? [];
+} catch (_) {}
+---
+
+<Dashboard title="Predefined Services" activePage="predefined">
+  <div class="page-header-wrap">
+    <div>
+      <h1>Predefined Services</h1>
+      <p>Manage secondary/predefined products and services</p>
+    </div>
+    <button class="btn btn-primary" id="open-add-modal">+ Add Service</button>
+  </div>
+
+  <div class="page-inner">
+    <div class="stats-row">
+      <StatsCard icon="📌" label="Total Services" value={items.length} variant="blue" />
+    </div>
+
+    <div class="card">
+      <div class="card-toolbar">
+        <div class="search-wrap">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="search-input" placeholder="Search services..." />
+        </div>
+      </div>
+
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Service Name</th>
+              <th>Date Added</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="items-tbody">
+            {items.length > 0 ? items.map(item => (
+              <tr data-id={item.id} data-name={item.name}>
+                <td class="text-muted font-mono">{item.id}</td>
+                <td style="font-weight:600">{item.name}</td>
+                <td class="text-muted text-sm">{item.created_at?.split(' ')[0] || '—'}</td>
+                <td>
+                  <div class="row-actions">
+                    <button class="btn btn-icon btn-secondary edit-btn" title="Edit">✏️</button>
+                    <button class="btn btn-icon btn-danger delete-btn" title="Delete">🗑️</button>
+                  </div>
+                </td>
+              </tr>
+            )) : (
+              <tr><td colspan="4" class="empty-state">
+                <div class="empty-icon">📌</div><p>No predefined services found.</p>
+              </td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <Modal id="item-modal" title="Add Predefined Service">
+    <form id="item-form">
+      <input type="hidden" id="item-id" />
+      <label>Service Name *</label>
+      <input type="text" id="item-name" placeholder="E.g. Netflix Mini" required style="margin-bottom:0" />
+    </form>
+    <div slot="footer">
+      <button class="btn btn-secondary" onclick="closeModal('item-modal')">Cancel</button>
+      <button class="btn btn-primary" id="save-btn">Save Service</button>
+    </div>
+  </Modal>
+</Dashboard>
+
+<style>
+  .page-header-wrap {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 16px; padding: 32px 32px 20px; flex-wrap: wrap;
+  }
+  .page-header-wrap h1 { font-size: 1.6rem; }
+  .page-header-wrap p  { color: var(--text-muted); font-size: 0.875rem; margin-top: 4px; }
+  .card-toolbar {
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 12px; padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .search-wrap input { width: 260px; margin: 0; }
+  .row-actions { display: flex; gap: 4px; }
+</style>
+
+<script is:inline>
+  function escHtml(s) {
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function renderItems(items) {
+    const tbody = document.getElementById('items-tbody');
+    if (!items.length) {
+      tbody.innerHTML = `<tr><td colspan="4" class="empty-state"><div class="empty-icon">📌</div><p>No services found.</p></td></tr>`;
+      return;
+    }
+    tbody.innerHTML = items.map(item => `
+      <tr data-id="${item.id}" data-name="${escHtml(item.name)}">
+        <td class="text-muted font-mono">${item.id}</td>
+        <td style="font-weight:600">${escHtml(item.name)}</td>
+        <td class="text-muted text-sm">${(item.created_at||'').split(' ')[0] || '—'}</td>
+        <td><div class="row-actions">
+          <button class="btn btn-icon btn-secondary edit-btn" title="Edit">✏️</button>
+          <button class="btn btn-icon btn-danger delete-btn" title="Delete">🗑️</button>
+        </div></td>
+      </tr>`).join('');
+  }
+
+  async function loadItems() {
+    try {
+      const search = document.getElementById('search-input').value.trim();
+      const params = search ? new URLSearchParams({ search }) : '';
+      const res = await api(`/api/predefined${params ? '?'+params : ''}`);
+      renderItems(res.predefined || []);
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  }
+
+  let filterTimer;
+  document.getElementById('search-input').addEventListener('input', () => {
+    clearTimeout(filterTimer);
+    filterTimer = setTimeout(loadItems, 300);
+  });
+
+  document.getElementById('open-add-modal').onclick = () => {
+    document.getElementById('item-form').reset();
+    document.getElementById('item-id').value = '';
+    document.querySelector('#item-modal .modal-header h2').textContent = 'Add Predefined Service';
+    openModal('item-modal');
+  };
+
+  document.getElementById('items-tbody').addEventListener('click', (e) => {
+    const row = e.target.closest('tr[data-id]');
+    if (!row) return;
+
+    if (e.target.closest('.edit-btn')) {
+      document.getElementById('item-id').value = row.dataset.id;
+      document.getElementById('item-name').value = row.dataset.name;
+      document.querySelector('#item-modal .modal-header h2').textContent = 'Edit Service';
+      openModal('item-modal');
+    }
+
+    if (e.target.closest('.delete-btn') && confirmDelete('Delete this service?')) {
+      api('/api/predefined', { method: 'DELETE', body: { id: Number(row.dataset.id) } })
+        .then(() => { showToast('Service deleted'); loadItems(); })
+        .catch(err => showToast(err.message, 'error'));
+    }
+  });
+
+  document.getElementById('save-btn').onclick = async () => {
+    const id = document.getElementById('item-id').value;
+    const name = document.getElementById('item-name').value.trim();
+    if (!name) { showToast('Service name required', 'error'); return; }
+
+    const btn = document.getElementById('save-btn');
+    btn.disabled = true; btn.textContent = 'Saving...';
+    try {
+      const method = id ? 'PUT' : 'POST';
+      const body = id ? { id: Number(id), name } : { name };
+      await api('/api/predefined', { method, body });
+      showToast('Service saved ✓');
+      closeModal('item-modal');
+      loadItems();
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      btn.disabled = false; btn.textContent = 'Save Service';
+    }
+  };
+</script>

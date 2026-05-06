@@ -1,0 +1,14 @@
+name = "db-worker"
+main = "src/index.js"
+compatibility_date = "2024-04-14"
+account_id = "your-account-id"
+
+# This binds the Cloudflare D1 Database to the env.DB variable.
+[[d1_databases]]
+binding = "DB"
+database_name = "your-db-name"
+database_id = "your-database-id"
+
+[vars]
+# Ensure you set this as a secret in production via `npx wrangler secret put DB_SECRET_TOKEN`
+DB_SECRET_TOKEN = "your-secret-token"

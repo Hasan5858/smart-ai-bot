@@ -1,0 +1,5 @@
+---
+// Logout: clear cookie and redirect to login
+Astro.cookies.delete('auth', { path: '/' });
+return Astro.redirect('/login');
+---

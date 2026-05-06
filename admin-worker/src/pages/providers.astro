@@ -1,0 +1,363 @@
+---
+import Dashboard from '../layouts/Dashboard.astro';
+import StatsCard from '../components/StatsCard.astro';
+import { queryDB } from '../lib/db';
+
+let providers: any[] = [];
+try {
+  const rows = await queryDB(Astro.locals, 'SELECT id, provider_name as name, model_id as model_name, api_key, priority, is_active, is_cloudflare FROM ai_providers ORDER BY priority ASC');
+  providers = (rows.results ?? []).map((p: any) => ({
+    ...p,
+    status: p.is_active ? 'active' : 'paused'
+  }));
+} catch (_) {}
+
+function maskKey(key: string) {
+  if (!key) return '';
+  return key.length > 10 ? key.slice(0, 5) + '...' + key.slice(-4) : key;
+}
+
+const activeCount = providers.filter(p => p.status === 'active').length;
+---
+
+<Dashboard title="AI Models" activePage="providers">
+  <div class="page-header-wrap">
+    <div>
+      <h1>AI Models</h1>
+      <p>Configure AI provider fallback sequence and API keys</p>
+    </div>
+    <button class="btn btn-secondary" id="refresh-btn">🔄 Refresh</button>
+  </div>
+
+  <div class="page-inner">
+    <div class="stats-row">
+      <StatsCard icon="🤖" label="Total Providers" value={providers.length} variant="blue" />
+      <StatsCard icon="⚡" label="Active" value={activeCount} variant="green" />
+      <StatsCard icon="⏸️" label="Paused" value={providers.length - activeCount} variant="yellow" />
+    </div>
+
+    <div class="card">
+      <div class="prov-header">
+        <p class="prov-desc">
+          Providers run top-to-bottom. Activate preferred providers and drag to reorder priority.
+          The bot will try Priority 1 first, falling back down the list on failure.
+        </p>
+      </div>
+
+      <div id="providers-list">
+        {providers.map((p, i) => (
+          <div class="prov-row" data-id={p.id} data-priority={p.priority}>
+            <div class="prov-order">
+              <span class="order-num">{i + 1}</span>
+              <div class="order-arrows">
+                <button class="arr-btn up-btn" title="Move up" data-id={p.id} disabled={i === 0}>▲</button>
+                <button class="arr-btn down-btn" title="Move down" data-id={p.id} disabled={i === providers.length - 1}>▼</button>
+              </div>
+            </div>
+
+            <div class="prov-info">
+              <div class="prov-name">{p.name}</div>
+              <div class="prov-model font-mono">{p.model_name}</div>
+            </div>
+
+            <div class="prov-keys" style="display:flex;flex-direction:column;gap:8px">
+              {(() => {
+                const keys = (p.api_key || '').split(',').map((k: string) => k.trim()).filter((k: string) => k);
+                return (
+                  <>
+                    <div style="display:flex; align-items:center; gap:6px;">
+                      <select class="existing-keys-sel" style="margin:0;font-size:0.8rem;flex:1">
+                        {keys.length ? keys.map((k: string) => (
+                          <option value={k}>{maskKey(k)}</option>
+                        )) : <option value="">No keys available</option>}
+                      </select>
+                      <button type="button" class="btn btn-sm btn-icon btn-danger del-key-btn" data-id={p.id} disabled={!keys.length} title="Delete selected key">🗑️</button>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:6px;">
+                      <input type="text" class="new-key-input" placeholder="New API key..." style="margin:0;font-size:0.8rem;flex:1" />
+                      <button type="button" class="btn btn-sm btn-secondary add-key-btn" data-id={p.id}>➕ Add</button>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+
+            <div class="prov-actions">
+              <button class={`btn btn-sm toggle-btn ${p.status === 'active' ? 'btn-danger' : 'btn-primary'}`}
+                data-id={p.id} data-status={p.status}>
+                {p.status === 'active' ? '⏸ Pause' : '▶ Activate'}
+              </button>
+            </div>
+          </div>
+        ))}
+
+        {providers.length === 0 && (
+          <div class="empty-state" style="padding:60px 20px">
+            <div class="empty-icon">🤖</div>
+            <p>No AI providers configured in the database.</p>
+          </div>
+        )}
+      </div>
+    </div>
+  </div>
+</Dashboard>
+
+<style>
+  .page-header-wrap {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 16px; padding: 32px 32px 20px; flex-wrap: wrap;
+  }
+  .page-header-wrap h1 { font-size: 1.6rem; }
+  .page-header-wrap p  { color: var(--text-muted); font-size: 0.875rem; margin-top: 4px; }
+
+  .prov-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .prov-desc {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    line-height: 1.6;
+    margin: 0;
+  }
+
+  .prov-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 20px;
+    padding: 20px;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.15s;
+    flex-wrap: wrap;
+  }
+  .prov-row:last-child { border-bottom: none; }
+  .prov-row:hover { background: var(--bg-row-hover); }
+
+  .prov-order {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .order-num {
+    width: 32px; height: 32px;
+    background: var(--primary-glow);
+    color: var(--primary);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.85rem;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  .order-arrows {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .arr-btn {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    border-radius: 4px;
+    width: 24px; height: 22px;
+    cursor: pointer;
+    font-size: 0.65rem;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s;
+  }
+  .arr-btn:hover:not(:disabled) { background: var(--primary-glow); color: var(--primary); }
+  .arr-btn:disabled { opacity: 0.3; cursor: default; }
+
+  .prov-info {
+    flex: 1;
+    min-width: 160px;
+  }
+  .prov-name  { font-weight: 700; font-size: 0.95rem; margin-bottom: 4px; }
+  .prov-model { font-size: 0.78rem; color: var(--primary); background: var(--primary-glow); padding: 2px 8px; border-radius: 4px; display: inline-block; }
+
+  .prov-keys { flex: 1; min-width: 200px; }
+  .key-hint  { font-size: 0.7rem; color: var(--text-muted); margin-top: 4px; }
+
+  .prov-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex-shrink: 0;
+    min-width: 120px;
+  }
+  .prov-actions .btn { width: 100%; justify-content: center; }
+</style>
+
+<script is:inline>
+  async function loadProviders() {
+    try {
+      const data = await api('/api/providers');
+      renderProviders(data.providers || []);
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  }
+
+  function maskKey(key) {
+    if (!key) return '';
+    return key.length > 10 ? key.slice(0, 5) + '...' + key.slice(-4) : key;
+  }
+
+  function renderProviders(providers) {
+    _providers = providers;
+    const list = document.getElementById('providers-list');
+    if (!providers.length) {
+      list.innerHTML = `<div class="empty-state" style="padding:60px 20px"><div class="empty-icon">🤖</div><p>No providers found.</p></div>`;
+      return;
+    }
+    list.innerHTML = providers.map((p, i) => `
+      <div class="prov-row" data-id="${p.id}" data-priority="${p.priority}">
+        <div class="prov-order">
+          <span class="order-num">${i + 1}</span>
+          <div class="order-arrows">
+            <button class="arr-btn up-btn" data-id="${p.id}" ${i === 0 ? 'disabled' : ''}>▲</button>
+            <button class="arr-btn down-btn" data-id="${p.id}" ${i === providers.length - 1 ? 'disabled' : ''}>▼</button>
+          </div>
+        </div>
+        <div class="prov-info">
+          <div class="prov-name">${escHtml(p.name)}</div>
+          <div class="prov-model font-mono">${escHtml(p.model_name||'')}</div>
+        </div>
+        <div class="prov-keys" style="display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex; align-items:center; gap:6px;">
+            <select class="existing-keys-sel" style="margin:0;font-size:0.8rem;flex:1">
+              ${(() => {
+                const keys = (p.api_key || '').split(',').map(k => k.trim()).filter(k => k);
+                return keys.length ? keys.map(k => \`<option value="\${escHtml(k)}">\${maskKey(k)}</option>\`).join('') : '<option value="">No keys available</option>';
+              })()}
+            </select>
+            <button type="button" class="btn btn-sm btn-icon btn-danger del-key-btn" data-id="${p.id}" ${!(p.api_key||'').trim() ? 'disabled' : ''} title="Delete selected key">🗑️</button>
+          </div>
+          <div style="display:flex; align-items:center; gap:6px;">
+            <input type="text" class="new-key-input" placeholder="New API key..." style="margin:0;font-size:0.8rem;flex:1" />
+            <button type="button" class="btn btn-sm btn-secondary add-key-btn" data-id="${p.id}">➕ Add</button>
+          </div>
+        </div>
+        <div class="prov-actions">
+          <button class="btn btn-sm toggle-btn ${p.status === 'active' ? 'btn-danger' : 'btn-primary'}"
+            data-id="${p.id}" data-status="${p.status}">
+            ${p.status === 'active' ? '⏸ Pause' : '▶ Activate'}
+          </button>
+        </div>
+      </div>`).join('');
+  }
+
+  function escHtml(s) {
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  document.getElementById('refresh-btn').onclick = loadProviders;
+
+  let _providers = [];
+  api('/api/providers').then(d => { _providers = d.providers || []; });
+
+  document.getElementById('providers-list').addEventListener('click', async (e) => {
+    // Toggle active/paused
+    if (e.target.closest('.toggle-btn')) {
+      const btn = e.target.closest('.toggle-btn');
+      const id  = btn.dataset.id;
+      const cur = btn.dataset.status;
+      const newStatus = cur === 'active' ? 'paused' : 'active';
+      try {
+        await api('/api/providers', { method: 'PUT', body: { id: Number(id), status: newStatus } });
+        showToast(`Provider ${newStatus === 'active' ? 'activated' : 'paused'} ✓`);
+        loadProviders();
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    }
+
+    // Add new key
+    if (e.target.closest('.add-key-btn')) {
+      const btn = e.target.closest('.add-key-btn');
+      const id  = btn.dataset.id;
+      const row = btn.closest('.prov-row');
+      const keyInput = row.querySelector('.new-key-input');
+      const newKey = keyInput.value.trim();
+      if (!newKey) { showToast('Please enter an API key', 'error'); return; }
+
+      const prov = _providers.find(p => p.id == id);
+      if (!prov) return;
+      const keys = (prov.api_key || '').split(',').map(k => k.trim()).filter(k => k);
+      if (keys.includes(newKey)) { showToast('Key already added', 'error'); return; }
+      keys.push(newKey);
+
+      btn.disabled = true; btn.textContent = '...';
+      try {
+        await api('/api/providers', { method: 'PUT', body: { id: Number(id), api_key: keys.join(',') } });
+        showToast('Key added ✓');
+        keyInput.value = '';
+        loadProviders();
+      } catch (err) {
+        showToast(err.message, 'error');
+        btn.disabled = false; btn.textContent = '➕ Add';
+      }
+    }
+
+    // Delete key
+    if (e.target.closest('.del-key-btn')) {
+      const btn = e.target.closest('.del-key-btn');
+      const id  = btn.dataset.id;
+      const row = btn.closest('.prov-row');
+      const sel = row.querySelector('.existing-keys-sel');
+      const keyToRemove = sel.value;
+      if (!keyToRemove) return;
+
+      const prov = _providers.find(p => p.id == id);
+      if (!prov) return;
+      let keys = (prov.api_key || '').split(',').map(k => k.trim()).filter(k => k);
+      keys = keys.filter(k => k !== keyToRemove);
+
+      btn.disabled = true;
+      try {
+        await api('/api/providers', { method: 'PUT', body: { id: Number(id), api_key: keys.join(',') } });
+        showToast('Key deleted ✓');
+        loadProviders();
+      } catch (err) {
+        showToast(err.message, 'error');
+        btn.disabled = false;
+      }
+    }
+
+    // Move up
+    if (e.target.closest('.up-btn')) {
+      const btn = e.target.closest('.up-btn');
+      const id  = Number(btn.dataset.id);
+      const data = await api('/api/providers');
+      const provs = data.providers || [];
+      const idx = provs.findIndex(p => p.id === id);
+      if (idx <= 0) return;
+      const prev = provs[idx - 1];
+      await Promise.all([
+        api('/api/providers', { method: 'PUT', body: { id, priority: prev.priority } }),
+        api('/api/providers', { method: 'PUT', body: { id: prev.id, priority: provs[idx].priority } }),
+      ]);
+      showToast('Priority updated ✓');
+      loadProviders();
+    }
+
+    // Move down
+    if (e.target.closest('.down-btn')) {
+      const btn = e.target.closest('.down-btn');
+      const id  = Number(btn.dataset.id);
+      const data = await api('/api/providers');
+      const provs = data.providers || [];
+      const idx = provs.findIndex(p => p.id === id);
+      if (idx >= provs.length - 1) return;
+      const next = provs[idx + 1];
+      await Promise.all([
+        api('/api/providers', { method: 'PUT', body: { id, priority: next.priority } }),
+        api('/api/providers', { method: 'PUT', body: { id: next.id, priority: provs[idx].priority } }),
+      ]);
+      showToast('Priority updated ✓');
+      loadProviders();
+    }
+  });
+</script>

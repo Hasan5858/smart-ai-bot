@@ -1,0 +1,292 @@
+---
+import Dashboard from '../layouts/Dashboard.astro';
+import StatsCard from '../components/StatsCard.astro';
+import Badge from '../components/Badge.astro';
+import Modal from '../components/Modal.astro';
+import { queryDB } from '../lib/db';
+
+// SSR: load first page of products immediately
+let initialProducts: any[] = [];
+let totalCount = 0;
+try {
+  const [rows, count] = await Promise.all([
+    queryDB(Astro.locals, "SELECT * FROM products WHERE description != 'Predefined Service' ORDER BY id DESC LIMIT 10"),
+    queryDB(Astro.locals, "SELECT COUNT(*) as total FROM products WHERE description != 'Predefined Service'"),
+  ]);
+  initialProducts = rows.results ?? [];
+  totalCount = count.results?.[0]?.total ?? 0;
+} catch (_) {}
+---
+
+<Dashboard title="Products" activePage="products">
+  <!-- Page Header -->
+  <div class="page-header-wrap">
+    <div>
+      <h1>Products</h1>
+      <p>Manage subscription products and pricing</p>
+    </div>
+    <button class="btn btn-primary" id="open-add-modal">+ Add Product</button>
+  </div>
+
+  <div class="page-inner">
+    <!-- Stats Row -->
+    <div class="stats-row">
+      <StatsCard icon="📦" label="Total Products" value={totalCount} variant="blue" />
+      <StatsCard icon="🔄" label="Renewable" value={initialProducts.filter(p => p.is_renewable).length} variant="green" />
+      <StatsCard icon="🔒" label="Non-renewable" value={initialProducts.filter(p => !p.is_renewable).length} variant="purple" />
+    </div>
+
+    <!-- Table Card -->
+    <div class="card">
+      <!-- Toolbar -->
+      <div class="card-toolbar">
+        <div class="search-wrap">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="search-input" placeholder="Search products..." />
+        </div>
+        <div class="pagination" id="pagination-controls">
+          <button class="btn btn-secondary btn-sm" id="prev-btn" disabled>← Prev</button>
+          <span id="page-info">Page 1</span>
+          <button class="btn btn-secondary btn-sm" id="next-btn">Next →</button>
+        </div>
+      </div>
+
+      <!-- Table -->
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:50px">ID</th>
+              <th>Name</th>
+              <th>Price (Tk)</th>
+              <th>Renewable</th>
+              <th>Description</th>
+              <th style="width:100px">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="products-tbody">
+            {initialProducts.length > 0 ? initialProducts.map((p) => (
+              <tr data-id={p.id} data-name={p.name} data-price={p.base_price}
+                  data-renewable={p.is_renewable} data-desc={p.description}>
+                <td class="text-muted font-mono">{p.id}</td>
+                <td class="font-weight-600">{p.name}</td>
+                <td><span class="price-chip">{p.base_price} ৳</span></td>
+                <td><Badge status={p.is_renewable ? 'yes' : 'no'} /></td>
+                <td class="text-muted desc-cell">{p.description}</td>
+                <td>
+                  <div class="row-actions">
+                    <button class="btn btn-icon btn-secondary edit-btn" title="Edit">✏️</button>
+                    <button class="btn btn-icon btn-danger delete-btn" title="Delete">🗑️</button>
+                  </div>
+                </td>
+              </tr>
+            )) : (
+              <tr><td colspan="6" class="empty-state">
+                <div class="empty-icon">📦</div>
+                <p>No products yet. Add your first product.</p>
+              </td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add / Edit Modal -->
+  <Modal id="product-modal" title="Add Product">
+    <form id="product-form">
+      <input type="hidden" id="prod-id" />
+      <label>Platform Name *</label>
+      <input type="text" id="prod-name" placeholder="e.g. Netflix Premium" required />
+      <label>Base Price (Tk) *</label>
+      <input type="number" id="prod-price" placeholder="450" required min="0" />
+      <label>Renewable?</label>
+      <select id="prod-renewable">
+        <option value="1">✅ Yes — Renewable</option>
+        <option value="0">❌ No — Non-renewable</option>
+      </select>
+      <label>Description</label>
+      <textarea id="prod-desc" rows="3" placeholder="1 Month, 1 Screen, Ultra HD..." style="margin-bottom:0"></textarea>
+    </form>
+    <div slot="footer">
+      <button class="btn btn-secondary" onclick="closeModal('product-modal')">Cancel</button>
+      <button class="btn btn-primary" id="save-product-btn">Save Product</button>
+    </div>
+  </Modal>
+</Dashboard>
+
+<style>
+  .page-header-wrap {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 32px 32px 20px;
+    flex-wrap: wrap;
+  }
+  .page-header-wrap h1 { font-size: 1.6rem; }
+  .page-header-wrap p  { color: var(--text-muted); font-size: 0.875rem; margin-top: 4px; }
+
+  .card { margin: 0; }
+  .card-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .search-wrap input { width: 220px; margin: 0; }
+
+  .price-chip {
+    font-weight: 600;
+    color: var(--primary);
+    font-size: 0.85rem;
+  }
+  .font-weight-600 { font-weight: 600; }
+  .desc-cell {
+    max-width: 200px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 0.82rem;
+  }
+  .row-actions { display: flex; gap: 4px; }
+</style>
+
+<script is:inline>
+  let currentPage = 1;
+  let totalPages  = 1;
+  let searchQuery = '';
+  let searchTimer = null;
+
+  // ── Render rows ───────────────────────────────────────────
+  function renderProducts(products) {
+    const tbody = document.getElementById('products-tbody');
+    if (!products.length) {
+      tbody.innerHTML = `<tr><td colspan="6" class="empty-state">
+        <div class="empty-icon">📦</div><p>No products found.</p></td></tr>`;
+      return;
+    }
+    tbody.innerHTML = products.map(p => `
+      <tr data-id="${p.id}" data-name="${escHtml(p.name)}" data-price="${p.base_price}"
+          data-renewable="${p.is_renewable}" data-desc="${escHtml(p.description||'')}">
+        <td class="text-muted font-mono">${p.id}</td>
+        <td style="font-weight:600">${escHtml(p.name)}</td>
+        <td><span class="price-chip">${p.base_price} ৳</span></td>
+        <td>${badgePill(p.is_renewable ? 'yes' : 'no')}</td>
+        <td class="text-muted desc-cell">${escHtml(p.description||'')}</td>
+        <td><div class="row-actions">
+          <button class="btn btn-icon btn-secondary edit-btn" title="Edit">✏️</button>
+          <button class="btn btn-icon btn-danger delete-btn" title="Delete">🗑️</button>
+        </div></td>
+      </tr>`).join('');
+  }
+
+  function badgePill(status) {
+    if (status === 'yes') return '<span class="badge badge-success"><span class="badge-dot"></span>Yes</span>';
+    return '<span class="badge badge-muted"><span class="badge-dot"></span>No</span>';
+  }
+
+  function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ── Load products ─────────────────────────────────────────
+  async function loadProducts(page = 1) {
+    currentPage = page;
+    try {
+      const params = new URLSearchParams({ page, ...(searchQuery ? { search: searchQuery } : {}) });
+      const data = await api(`/api/products?${params}`);
+      totalPages = data.pages || 1;
+      renderProducts(data.products);
+      document.getElementById('page-info').textContent = `Page ${page} of ${totalPages}`;
+      document.getElementById('prev-btn').disabled = page <= 1;
+      document.getElementById('next-btn').disabled = page >= totalPages;
+    } catch (err) {
+      showToast('Failed to load products: ' + err.message, 'error');
+    }
+  }
+
+  // ── Pagination ────────────────────────────────────────────
+  document.getElementById('prev-btn').onclick = () => loadProducts(currentPage - 1);
+  document.getElementById('next-btn').onclick = () => loadProducts(currentPage + 1);
+
+  // ── Search ────────────────────────────────────────────────
+  document.getElementById('search-input').addEventListener('input', (e) => {
+    searchQuery = e.target.value.trim();
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => loadProducts(1), 350);
+  });
+
+  // ── Open add modal ────────────────────────────────────────
+  document.getElementById('open-add-modal').onclick = () => {
+    document.getElementById('prod-id').value = '';
+    document.getElementById('prod-name').value = '';
+    document.getElementById('prod-price').value = '';
+    document.getElementById('prod-renewable').value = '1';
+    document.getElementById('prod-desc').value = '';
+    document.querySelector('#product-modal .modal-header h2').textContent = 'Add Product';
+    openModal('product-modal');
+  };
+
+  // ── Edit / Delete via event delegation ───────────────────
+  document.getElementById('products-tbody').addEventListener('click', (e) => {
+    const editBtn   = e.target.closest('.edit-btn');
+    const deleteBtn = e.target.closest('.delete-btn');
+    const row       = e.target.closest('tr');
+    if (!row) return;
+
+    if (editBtn) {
+      document.getElementById('prod-id').value = row.dataset.id;
+      document.getElementById('prod-name').value = row.dataset.name;
+      document.getElementById('prod-price').value = row.dataset.price;
+      document.getElementById('prod-renewable').value = row.dataset.renewable;
+      document.getElementById('prod-desc').value = row.dataset.desc;
+      document.querySelector('#product-modal .modal-header h2').textContent = 'Edit Product';
+      openModal('product-modal');
+    }
+
+    if (deleteBtn && confirmDelete('Delete this product?')) {
+      api('/api/products', { method: 'DELETE', body: { id: Number(row.dataset.id) } })
+        .then(() => { showToast('Product deleted'); loadProducts(currentPage); })
+        .catch(err => showToast(err.message, 'error'));
+    }
+  });
+
+  // ── Save product ──────────────────────────────────────────
+  document.getElementById('save-product-btn').onclick = async () => {
+    const id          = document.getElementById('prod-id').value;
+    const name        = document.getElementById('prod-name').value.trim();
+    const base_price  = Number(document.getElementById('prod-price').value);
+    const is_renewable = document.getElementById('prod-renewable').value === '1';
+    const description = document.getElementById('prod-desc').value.trim();
+
+    if (!name || !base_price) { showToast('Name and price are required', 'error'); return; }
+
+    const btn = document.getElementById('save-product-btn');
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+
+    try {
+      if (id) {
+        await api('/api/products', { method: 'PUT', body: { id: Number(id), name, base_price, is_renewable, description } });
+        showToast('Product updated ✓');
+      } else {
+        await api('/api/products', { method: 'POST', body: { name, base_price, is_renewable, description } });
+        showToast('Product added ✓');
+      }
+      closeModal('product-modal');
+      loadProducts(currentPage);
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Save Product';
+    }
+  };
+
+  // Init pagination controls based on SSR data
+  document.getElementById('page-info').textContent = 'Page 1';
+</script>

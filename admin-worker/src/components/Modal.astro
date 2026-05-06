@@ -1,0 +1,45 @@
+---
+interface Props {
+  id: string;
+  title: string;
+  size?: 'sm' | 'md' | 'lg';
+}
+const { id, title, size = 'md' } = Astro.props;
+const maxW = { sm: '400px', md: '520px', lg: '680px' }[size];
+---
+
+<div class="modal-overlay" id={id} role="dialog" aria-modal="true">
+  <div class="modal-box" style={`max-width: ${maxW}`}>
+    <div class="modal-header">
+      <h2>{title}</h2>
+      <button class="modal-close" data-close={id} aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body">
+      <slot />
+    </div>
+    <div class="modal-footer">
+      <slot name="footer" />
+    </div>
+  </div>
+</div>
+
+<script>
+  // Close on backdrop click or close button
+  document.querySelectorAll('.modal-overlay').forEach((overlay) => {
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) closeModal(overlay.id);
+    });
+  });
+  document.querySelectorAll('[data-close]').forEach((btn) => {
+    btn.addEventListener('click', () => closeModal((btn as HTMLElement).dataset.close!));
+  });
+
+  // Escape key
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      document.querySelectorAll('.modal-overlay.open').forEach((m) =>
+        closeModal(m.id)
+      );
+    }
+  });
+</script>

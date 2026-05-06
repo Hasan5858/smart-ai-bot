@@ -1,0 +1,17 @@
+name = "admin-worker"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat_v2"]
+
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+
+# Service binding for DB — active in production (wrangler deploy)
+[[services]]
+binding = "DB_WORKER"
+service = "db-worker"
+
+[vars]
+LOCAL_DB_URL = "https://db-worker.your-subdomain.workers.dev"
+DB_SECRET_TOKEN = "your-secret-token"
+ADMIN_PASSWORD = "admin-password"

@@ -1,0 +1,68 @@
+---
+interface Props {
+  icon: string;
+  label: string;
+  value: string | number;
+  variant?: 'blue' | 'green' | 'red' | 'yellow' | 'purple';
+}
+const { icon, label, value, variant = 'blue' } = Astro.props;
+---
+
+<div class={`stats-card stats-card--${variant}`}>
+  <div class="stats-icon">{icon}</div>
+  <div class="stats-body">
+    <div class="stats-value">{value}</div>
+    <div class="stats-label">{label}</div>
+  </div>
+</div>
+
+<style>
+  .stats-card {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 18px 20px;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-card);
+    background: var(--bg-card);
+    backdrop-filter: blur(20px);
+    transition: transform 0.18s, border-color 0.18s;
+  }
+  .stats-card:hover { transform: translateY(-2px); }
+
+  .stats-card--blue   { border-color: rgba(59,130,246,0.22); }
+  .stats-card--green  { border-color: rgba(16,185,129,0.22); }
+  .stats-card--red    { border-color: rgba(239,68,68,0.22);  }
+  .stats-card--yellow { border-color: rgba(245,158,11,0.22); }
+  .stats-card--purple { border-color: rgba(139,92,246,0.22); }
+
+  .stats-icon {
+    font-size: 1.75rem;
+    width: 48px; height: 48px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: var(--radius-md);
+    flex-shrink: 0;
+  }
+
+  .stats-card--blue   .stats-icon { background: var(--primary-glow); }
+  .stats-card--green  .stats-icon { background: var(--success-bg); }
+  .stats-card--red    .stats-icon { background: var(--danger-bg); }
+  .stats-card--yellow .stats-icon { background: var(--warning-bg); }
+  .stats-card--purple .stats-icon { background: var(--accent-glow); }
+
+  .stats-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    color: var(--text-primary);
+    line-height: 1;
+  }
+  .stats-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 4px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+</style>

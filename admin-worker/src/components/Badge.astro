@@ -1,0 +1,37 @@
+---
+type Status = 'active' | 'inactive' | 'suspended' | 'paused' | 'pending' | string;
+
+interface Props {
+  status: Status;
+  dot?: boolean;
+}
+
+const { status, dot = true } = Astro.props;
+
+const map: Record<string, { cls: string; label: string }> = {
+  active:    { cls: 'badge-success', label: 'Active' },
+  inactive:  { cls: 'badge-danger',  label: 'Inactive' },
+  suspended: { cls: 'badge-danger',  label: 'Suspended' },
+  paused:    { cls: 'badge-warning', label: 'Paused' },
+  pending:   { cls: 'badge-info',    label: 'Pending' },
+  yes:       { cls: 'badge-success', label: 'Yes' },
+  no:        { cls: 'badge-muted',   label: 'No' },
+};
+
+const cfg = map[status?.toLowerCase()] ?? { cls: 'badge-muted', label: status };
+---
+
+<span class={`badge ${cfg.cls}`}>
+  {dot && <span class="badge-dot" />}
+  {cfg.label}
+</span>
+
+<style>
+  .badge-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: 0.7;
+    flex-shrink: 0;
+  }
+</style>

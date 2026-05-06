@@ -1,0 +1,138 @@
+---
+import Dashboard from '../layouts/Dashboard.astro';
+import { queryDB } from '../lib/db';
+
+const usersRes = await queryDB(Astro.locals, `
+  SELECT id, telegram_id, telegram_name, telegram_username, chat_mode, mute_until
+  FROM users
+  WHERE chat_mode = 'human'
+  ORDER BY mute_until DESC
+`);
+const rawUsers = usersRes.results || [];
+const now = Date.now();
+
+// Precompute display values in frontmatter to avoid complex inline ternaries
+const pendingUsers = rawUsers.map((u: any) => {
+  const muteUntil = u.mute_until ? Number(u.mute_until) : 0;
+  const remaining = muteUntil - now;
+  const hasTime = muteUntil > 0;
+  const isActive = hasTime && remaining > 0;
+  const isExpired = hasTime && remaining <= 0;
+  const mins = isActive ? Math.max(1, Math.ceil(remaining / 60000)) : 0;
+
+  let badgeLabel = '🔒 Permanently Paused';
+  let badgeColor = 'rgba(239,68,68,0.1)';
+  let badgeText = '#ef4444';
+  if (isActive) { badgeLabel = '🤫 Human Replied / Handover'; }
+  if (isExpired) { badgeLabel = '✅ Mute Expired (Stale)'; badgeColor = 'rgba(34,197,94,0.1)'; badgeText = '#22c55e'; }
+
+  return { ...u, muteUntil, isActive, mins, badgeLabel, badgeColor, badgeText };
+});
+---
+
+<Dashboard title="Human Chats" activePage="human-chats">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">AI Muted Chats</h1>
+      <p class="page-desc">Users where AI is currently paused. Unmute manually anytime.</p>
+    </div>
+    {pendingUsers.length > 0 && (
+      <button class="btn btn-primary" onclick="resolveAllBots()">
+        Unmute All (Enable AI)
+      </button>
+    )}
+  </div>
+
+  <div class="card">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>User</th>
+          <th>Mute Status</th>
+          <th>Auto-Unmutes In</th>
+          <th style="width:140px;text-align:right;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {pendingUsers.length === 0 ? (
+          <tr>
+            <td colspan="4" style="text-align:center; padding: 2rem; color: var(--text-muted);">
+              No muted chats — AI is active for all users ✨
+            </td>
+          </tr>
+        ) : pendingUsers.map((u: any) => (
+          <tr>
+            <td>
+              <div class="fw-500">
+                {u.telegram_name || 'N/A'}
+                {u.telegram_username && (
+                  <a href={`https://t.me/${u.telegram_username}`} target="_blank" class="ms-1" style="color: var(--primary);">
+                    @{u.telegram_username}
+                  </a>
+                )}
+              </div>
+              <div style="font-size: 0.75rem; color: var(--text-muted);">ID: {u.telegram_id}</div>
+            </td>
+            <td>
+              <span class="badge" style={`background: ${u.badgeColor}; color: ${u.badgeText};`}>
+                {u.badgeLabel}
+              </span>
+            </td>
+            <td>
+              {u.isActive ? (
+                <span
+                  class="mute-countdown"
+                  data-until={u.muteUntil}
+                  style="font-weight: 600; color: #f59e0b;"
+                >
+                  {u.mins}m remaining
+                </span>
+              ) : (
+                <span style="color: var(--text-muted); font-size: 0.85rem;">—</span>
+              )}
+            </td>
+            <td style="text-align:right;">
+              <button class="btn btn-sm btn-primary" onclick={`resolveBot(${u.id})`}>
+                Unmute AI
+              </button>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+</Dashboard>
+
+<script is:inline>
+  function updateCountdowns() {
+    document.querySelectorAll('.mute-countdown').forEach(el => {
+      const until = parseInt(el.dataset.until);
+      const remaining = until - Date.now();
+      if (remaining <= 0) {
+        el.textContent = 'Expired';
+        el.style.color = '#22c55e';
+      } else {
+        el.textContent = Math.ceil(remaining / 60000) + 'm remaining';
+      }
+    });
+  }
+  setInterval(updateCountdowns, 30000);
+
+  async function resolveBot(id) {
+    if (!confirm('Unmute AI for this user? Bot will resume responding.')) return;
+    try {
+      await api('/api/human-chats', { method: 'PUT', body: { id, chat_mode: 'ai' } });
+      showToast('AI unmuted!');
+      setTimeout(() => location.reload(), 600);
+    } catch (e) { alert(e.message); }
+  }
+
+  async function resolveAllBots() {
+    if (!confirm('Unmute AI for ALL muted users?')) return;
+    try {
+      await api('/api/human-chats', { method: 'PUT', body: { id: 'ALL', chat_mode: 'ai' } });
+      showToast('AI unmuted for all!');
+      setTimeout(() => location.reload(), 600);
+    } catch (e) { alert(e.message); }
+  }
+</script>
