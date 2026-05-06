@@ -99,5 +99,12 @@ The Admin interface is constructed using Astro.
 - Ensure `HOUSEHOLD_AUTH_SECRET` and `DB_SECRET_TOKEN` are uniquely generated random strings in your setup.
 - Always use `wrangler secret put` for production variables.
 
+## 📩 Custom Solutions & Contact
+
+Looking to build or integrate a custom AI bot solution for your own business or specific use case? I can help you design, develop, and deploy intelligent automation systems tailored to your needs.
+
+Feel free to reach out for collaborations or inquiries:
+- **Email:** [hasansarker58@gmail.com](mailto:hasansarker58@gmail.com)
+
 ## 📄 License
 This project is open-source and free to adapt.
